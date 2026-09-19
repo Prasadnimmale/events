@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ivory: #f9f6f0;
+  --color-parchment: #f1ece1;
+  --color-sand: #e7dfcf;
+  --color-charcoal: #191714;
+  --color-ink: #2b2723;
+  --color-mist: #6f675c;
+  --color-line: #e3dccd;
+  --color-gold: #b08d57;
+  --color-goldsoft: #c9ab77;
+
+  --font-display: var(--font-playfair), "Playfair Display", Georgia, serif;
+  --font-sans: var(--font-jakarta), "Plus Jakarta Sans", system-ui, sans-serif;
+
+  --ease-luxe: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-ivory);
+  color: var(--color-charcoal);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: clip;
+}
+
+::selection {
+  background: var(--color-gold);
+  color: #fff;
+}
+
+/* ---- scrollbar ---- */
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-parchment);
+}
+::-webkit-scrollbar-thumb {
+  background: #cfc5b0;
+  border-radius: 99px;
+  border: 2px solid var(--color-parchment);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gold);
+}
+
+/* ---- film grain (animated, GPU-cheap) ---- */
+.grain {
+  opacity: 0.09;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 240px 240px;
+  animation: grain-shift 0.9s steps(4) infinite;
+}
+
+@keyframes grain-shift {
+  0% { transform: translate3d(0, 0, 0); }
+  25% { transform: translate3d(-60px, 30px, 0); }
+  50% { transform: translate3d(40px, -45px, 0); }
+  75% { transform: translate3d(-30px, -20px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grain {
+    animation: none;
+  }
+}
+
+/* ---- reusable bits ---- */
+.eyebrow {
+  @apply flex items-center gap-3 text-[11px] font-semibold uppercase;
+  letter-spacing: 0.32em;
+  color: var(--color-gold);
+}
+
+.eyebrow::before {
+  content: "";
+  display: block;
+  height: 1px;
+  width: 2.25rem;
+  background: currentColor;
+}
+
+.btn-gold {
+  @apply inline-flex items-center gap-2 px-7 py-3.5 text-[13px] font-semibold uppercase transition-colors duration-300;
+  letter-spacing: 0.18em;
+  background: var(--color-gold);
+  color: #fff;
+}
+.btn-gold:hover {
+  background: var(--color-ink);
+}
+
+.btn-outline {
+  @apply inline-flex items-center gap-2 px-7 py-3.5 text-[13px] font-semibold uppercase transition-colors duration-300;
+  letter-spacing: 0.18em;
+  border: 1px solid color-mix(in srgb, #ffffff 55%, transparent);
+  color: #fff;
+  backdrop-filter: blur(6px);
+  background: color-mix(in srgb, #ffffff 8%, transparent);
+}
+.btn-outline:hover {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: var(--color-charcoal);
+}
+
+.btn-outline-dark {
+  @apply inline-flex items-center gap-2 px-7 py-3.5 text-[13px] font-semibold uppercase transition-colors duration-300;
+  letter-spacing: 0.18em;
+  border: 1px solid var(--color-charcoal);
+  color: var(--color-charcoal);
+}
+.btn-outline-dark:hover {
+  background: var(--color-charcoal);
+  color: var(--color-ivory);
+}
+
+.btn-dark {
+  @apply inline-flex items-center gap-2 px-7 py-3.5 text-[13px] font-semibold uppercase transition-colors duration-300;
+  letter-spacing: 0.18em;
+  background: var(--color-charcoal);
+  color: var(--color-ivory);
+}
+.btn-dark:hover {
+  background: var(--color-gold);
+}
+
+input,
+select,
+textarea {
+  color: var(--color-charcoal);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
