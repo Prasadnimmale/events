@@ -2,32 +2,39 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { motion, useMotionValue, useTransform, type MotionValue } from "framer-motion";
+import { motion, useMotionValue, useTransform } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { img } from "@/lib/images";
 
 const EASE = [0.23, 1, 0.32, 1] as const;
 
-/** How long the video gets to arrive & settle before any text enters. */
-const VIDEO_SETTLE_MS = 1600;
-/** Safety net: text never waits forever if the video stalls or fails. */
-const TEXT_FALLBACK_MS = 3200;
+/** How long the hero image gets to arrive & settle before any text enters. */
+const SETTLE_MS = 1100;
+
+/** smoothstep easing for the scroll timeline */
+const smooth = (t: number) => t * t * (3 - 2 * t);
+const clamp01 = (v: number) => Math.min(Math.max(v, 0), 1);
+/** progress of `p` through the window [a..b], eased, clamped to 0..1 */
+const stage = (p: number, a: number, b: number) => smooth(clamp01((p - a) / (b - a)));
+
+/** lighter motion on small screens, fuller on desktop. */
+const strengthFor = (w: number) => (w < 768 ? 0.72 : w < 1200 ? 0.88 : 1);
 
 export default function HeroCinematic() {
-  const ref = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const ref = useRef<HTMLElement>(null);
+  const strengthRef = useRef(1);
+  const reducedRef = useRef(false);
   const [reducedMotion, setReducedMotion] = useState(false);
-  const [videoReady, setVideoReady] = useState(false);
-  // text enters only after the video has arrived & settled (or fallback fires)
   const [textIn, setTextIn] = useState(false);
 
-  // Scroll progress 0 → 1 across the pinned transition, measured manually so it
-  // can never go stale (viewport height changes on mobile chrome, image loads,
-  // etc. are handled by the ResizeObserver below).
-  const progress: MotionValue<number> = useMotionValue(0);
+  // scroll progress 0 → 1 across the pinned transition, measured manually so it
+  // can never go stale (viewport changes on mobile chrome are handled below).
+  const progress = useMotionValue(0);
 
   useEffect(() => {
-    setReducedMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    reducedRef.current = mq.matches;
+    setReducedMotion(mq.matches);
   }, []);
 
   useEffect(() => {
@@ -37,7 +44,7 @@ export default function HeroCinematic() {
     const update = () => {
       const travel = section.offsetHeight - window.innerHeight;
       const local = window.scrollY - section.offsetTop;
-      progress.set(travel > 0 ? Math.min(Math.max(local / travel, 0), 1) : 0);
+      progress.set(travel > 0 ? clamp01(local / travel) : 0);
     };
 
     update();
@@ -53,58 +60,83 @@ export default function HeroCinematic() {
     };
   }, [progress]);
 
-  // sequence: video ready → settle pad → release the text stagger
+  // device-aware strength (tablet/mobile reduce scale & travel)
   useEffect(() => {
-    if (videoRef.current && videoRef.current.readyState >= 3) setVideoReady(true);
+    const onResize = () => {
+      strengthRef.current = strengthFor(window.innerWidth);
+    };
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  // text enters after the hero image has had a moment to arrive & settle
   useEffect(() => {
-    const t = setTimeout(
-      () => setTextIn(true),
-      !videoReady ? TEXT_FALLBACK_MS : reducedMotion ? 0 : VIDEO_SETTLE_MS
-    );
+    const t = setTimeout(() => setTextIn(true), reducedMotion ? 0 : SETTLE_MS);
     return () => clearTimeout(t);
-  }, [videoReady, reducedMotion]);
+  }, [reducedMotion]);
 
-  // pause the looping video once the hero has been wiped away
-  useEffect(() => {
-    const unsub = progress.on("change", (p) => {
-      const v = videoRef.current;
-      if (!v) return;
-      if (p > 0.8 && !v.paused) v.pause();
-      else if (p <= 0.8 && v.paused && !document.hidden) v.play().catch(() => {});
-    });
-    return unsub;
-  }, [progress]);
+  // ================= HERO IMAGE — scale up slightly, then drift =================
+  // 25% scale starts, 45% movement starts, both peak mid-wipe
+  const heroScale = useTransform(progress, (p) =>
+    reducedRef.current ? 1 : 1 + 0.1 * strengthRef.current * stage(p, 0.25, 0.65)
+  );
+  const heroY = useTransform(progress, (p) =>
+    reducedRef.current
+      ? "0%"
+      : `${(-7 * strengthRef.current * stage(p, 0.45, 0.75)).toFixed(2)}%`
+  );
+  // reduced-motion fallback: gentle crossfade instead of the wipe
+  const heroOpacity = useTransform(progress, (p) =>
+    reducedRef.current ? 1 - stage(p, 0.55, 0.8) : 1
+  );
 
-  // ----- phase 1: hero breathes (scale + drift), content lifts away -----
-  const heroScale = useTransform(progress, [0, 0.3], [1, 1.14]);
-  const heroY = useTransform(progress, [0, 0.3], ["0%", "8%"]);
-  const heroContentY = useTransform(progress, [0, 0.2], ["0%", "-70%"]);
-  const heroContentOpacity = useTransform(progress, [0, 0.14], [1, 0]);
-  const scrollHintOpacity = useTransform(progress, [0, 0.08], [1, 0]);
+  // ================= HERO TEXT — lifts away before the wipe =================
+  const heroContentY = useTransform(progress, (p) =>
+    reducedRef.current ? "0%" : `${(-68 * stage(p, 0.28, 0.58)).toFixed(2)}%`
+  );
+  const heroContentOpacity = useTransform(progress, (p) => 1 - stage(p, 0.28, 0.5));
 
-  // ----- phase 2: diagonal wipe — hero video is cut away from its left edge -----
+  // ================= DIAGONAL WIPE — hero is cut away, left → right =================
+  // polygon starts covering the full screen and slides a diagonal cut out to the
+  // right, continuously revealing the event image stacked behind the hero.
   const heroClip = useTransform(progress, (p) => {
-    const t = Math.min(Math.max((p - 0.3) / 0.42, 0), 1); // 0.3 → 0.72
-    const x = t * 100;
-    return `polygon(0% 0%, ${x}% 0%, calc(${x}% - 32vw) 100%, 0% 100%)`;
+    if (reducedRef.current) return "polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)";
+    const t = stage(p, 0.6, 0.9);
+    const x = 175 - 185 * t;
+    return `polygon(0% 0%, ${x.toFixed(2)}% 0%, ${(x - 62).toFixed(2)}% 100%, 0% 100%)`;
   });
 
-  // ----- phase 3: second image enters from behind, counter-scales to settle -----
-  const revealScale = useTransform(progress, [0.3, 0.78], [1.18, 1.02]);
-  const revealY = useTransform(progress, [0.3, 0.78], ["-6%", "0%"]);
+  // ================= SECOND IMAGE — enters from behind, settles =================
+  const revealScale = useTransform(
+    progress,
+    (p) => 1.16 - 0.14 * strengthRef.current * stage(p, 0.58, 0.92)
+  );
+  const revealY = useTransform(progress, (p) =>
+    `${(5 * strengthRef.current * (1 - stage(p, 0.58, 0.92))).toFixed(2)}%`
+  );
+  const revealOpacity = useTransform(progress, (p) =>
+    reducedRef.current ? 0.1 + 0.9 * stage(p, 0.48, 0.78) : 0.9 + 0.1 * stage(p, 0.6, 0.8)
+  );
+  const overlayOpacity = useTransform(progress, (p) => 0.16 + 0.46 * stage(p, 0.6, 0.98));
 
-  // ----- phase 4: staggered content reveal on the new image -----
-  const labelOpacity = useTransform(progress, [0.62, 0.72], [0, 1]);
-  const labelY = useTransform(progress, [0.62, 0.72], [28, 0]);
-  const headingY = useTransform(progress, [0.68, 0.8], [48, 0]);
-  const headingOpacity = useTransform(progress, [0.68, 0.8], [0, 1]);
-  const textY = useTransform(progress, [0.74, 0.86], [32, 0]);
-  const textOpacity = useTransform(progress, [0.74, 0.86], [0, 1]);
-  const btnY = useTransform(progress, [0.8, 0.9], [24, 0]);
-  const btnOpacity = useTransform(progress, [0.8, 0.9], [0, 1]);
-  const overlayOpacity = useTransform(progress, [0.35, 0.75], [0.18, 0.62]);
+  // ================= STAGGERED ABOUT CONTENT — label → heading → text → button =================
+  const labelOpacity = useTransform(progress, (p) => stage(p, 0.66, 0.76));
+  const labelY = useTransform(progress, (p) =>
+    reducedRef.current ? 0 : 26 - 26 * stage(p, 0.66, 0.76)
+  );
+  const headingOpacity = useTransform(progress, (p) => stage(p, 0.72, 0.84));
+  const headingY = useTransform(progress, (p) =>
+    reducedRef.current ? 0 : 54 - 54 * stage(p, 0.72, 0.84)
+  );
+  const textOpacity = useTransform(progress, (p) => stage(p, 0.78, 0.9));
+  const textY = useTransform(progress, (p) =>
+    reducedRef.current ? 0 : 36 - 36 * stage(p, 0.78, 0.9)
+  );
+  const btnOpacity = useTransform(progress, (p) => stage(p, 0.84, 0.96));
+  const btnY = useTransform(progress, (p) =>
+    reducedRef.current ? 0 : 26 - 26 * stage(p, 0.84, 0.96)
+  );
 
   /** Gated entrance: holds hidden until textIn flips, then staggers in. */
   const gated = (i: number) => ({
@@ -115,12 +147,12 @@ export default function HeroCinematic() {
 
   return (
     /* shorter scroll runway on mobile so the transition never feels like a trap */
-    <section ref={ref} id="home" className="relative h-[190vh] md:h-[270vh]">
+    <section ref={ref} id="home" className="relative h-[200vh] md:h-[260vh]">
       {/* pin the stage for the whole scroll length, release into normal flow */}
       <div className="sticky top-0 h-svh overflow-hidden">
         {/* ============ IMAGE 2 — the event image entering from behind ============ */}
         <motion.div
-          style={{ scale: revealScale, y: revealY }}
+          style={{ scale: revealScale, y: revealY, opacity: revealOpacity }}
           className="absolute inset-0 will-change-transform"
         >
           <Image
@@ -169,39 +201,34 @@ export default function HeroCinematic() {
           </div>
         </motion.div>
 
-        {/* ============ VIDEO 1 — hero, being clipped away ============ */}
+        {/* ============ HERO IMAGE — being clipped away ============ */}
         <motion.div
-          style={{ scale: heroScale, y: heroY, clipPath: heroClip }}
+          style={{ scale: heroScale, y: heroY, clipPath: heroClip, opacity: heroOpacity }}
           className="absolute inset-0 z-10 will-change-transform"
         >
-          {/* poster fallback sits under the video so a failed load never blanks the hero */}
-          <Image
-            src={img("hero")}
-            alt=""
-            fill
-            priority
-            sizes="100vw"
-            className="object-cover"
-          />
-          {/* the video itself arrives first: fades in and settles before any text */}
-          <motion.video
-            ref={videoRef}
-            className="absolute inset-0 h-full w-full object-cover"
-            src="/images/events/hero/hero.mp4"
-            poster={img("hero")}
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            disablePictureInPicture
-            aria-hidden="true"
-            onCanPlay={() => setVideoReady(true)}
-            onError={() => setVideoReady(true)}
-            initial={{ opacity: 0, scale: 1.06 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 1.2, ease: EASE, delay: reducedMotion ? 0 : 0.35 }}
-          />
+          {/* continuous video-like Ken-Burns loop so the still image never feels flat */}
+          <motion.div
+            initial={{ scale: 1.08 }}
+            animate={
+              reducedMotion
+                ? { scale: 1 }
+                : { scale: [1.08, 1.16, 1.08], y: [0, -16, 0] }
+            }
+            transition={{
+              scale: { duration: 16, repeat: Infinity, ease: "easeInOut" },
+              y: { duration: 22, repeat: Infinity, ease: "easeInOut" },
+            }}
+            className="absolute inset-0 will-change-transform"
+          >
+            <Image
+              src={img("hero")}
+              alt=""
+              fill
+              priority
+              sizes="100vw"
+              className="object-cover"
+            />
+          </motion.div>
 
           {/* readability gradient */}
           <div className="absolute inset-0 bg-gradient-to-t from-charcoal/80 via-charcoal/30 to-charcoal/40" />
@@ -266,28 +293,6 @@ export default function HeroCinematic() {
                 </motion.div>
               </div>
             </div>
-          </motion.div>
-
-          {/* scroll hint (also waits for the video to settle) */}
-          <motion.div
-            style={{ opacity: scrollHintOpacity }}
-            className="absolute bottom-8 left-1/2 z-20 -translate-x-1/2"
-          >
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: textIn ? 1 : 0 }}
-              transition={{ duration: 0.8, delay: 0.5 }}
-              className="flex flex-col items-center gap-3"
-            >
-              <span className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/70">
-                Scroll
-              </span>
-              <motion.span
-                animate={{ y: [0, 8, 0] }}
-                transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-                className="block h-10 w-px bg-gradient-to-b from-white/80 to-transparent"
-              />
-            </motion.div>
           </motion.div>
         </motion.div>
 

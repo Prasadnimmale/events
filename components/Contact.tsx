@@ -4,6 +4,8 @@ import { useState, type FormEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle2 } from "lucide-react";
 import { Reveal, Section } from "./Reveal";
+import { SITE, waLink } from "@/lib/site";
+import WhatsAppIcon from "./WhatsAppIcon";
 
 type Fields = {
   name: string;
@@ -80,7 +82,23 @@ export default function Contact() {
     ev.preventDefault();
     const errs = validate(values);
     setErrors(errs);
-    if (Object.keys(errs).length === 0) setSent(true);
+    if (Object.keys(errs).length === 0) {
+      // forward the enquiry to WhatsApp with the form details pre-filled
+      const lines = [
+        `Hi EVERA! I'd like to enquire about planning an event.`,
+        ``,
+        `Name: ${values.name}`,
+        `Email: ${values.email}`,
+        values.phone && `Phone: ${values.phone}`,
+        values.date && `Date: ${values.date}`,
+        `Event: ${values.eventType}`,
+        values.guests && `Guests: ${values.guests}`,
+        values.venue && `Venue: ${values.venue}`,
+        values.message && `Message: ${values.message}`,
+      ].filter(Boolean);
+      window.open(waLink(lines.join("\n")), "_blank", "noopener,noreferrer");
+      setSent(true);
+    }
   };
 
   const field = (k: keyof Fields, label: string, type = "text", required = false) => (
@@ -124,10 +142,21 @@ export default function Contact() {
           </Reveal>
           <Reveal i={3}>
             <div className="mt-10 space-y-4 border-l-2 border-gold/40 pl-6">
-              <p className="text-sm text-ink"><span className="font-semibold">Email</span> — hello@evera.events</p>
-              <p className="text-sm text-ink"><span className="font-semibold">Phone</span> — +1 (212) 555-0148</p>
-              <p className="text-sm text-ink"><span className="font-semibold">Studio</span> — 48 Atelier Lane, New York</p>
+              <p className="text-sm text-ink"><span className="font-semibold">Email</span> — {SITE.email}</p>
+              <p className="text-sm text-ink"><span className="font-semibold">Phone</span> — {SITE.phone}</p>
+              <p className="text-sm text-ink"><span className="font-semibold">Studio</span> — {SITE.studio}</p>
             </div>
+          </Reveal>
+          <Reveal i={4}>
+            <a
+              href={waLink("Hi EVERA! I'd like to enquire about planning an event.")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-gold mt-10 inline-flex"
+            >
+              <WhatsAppIcon />
+              Chat on WhatsApp
+            </a>
           </Reveal>
         </div>
 
@@ -145,12 +174,12 @@ export default function Contact() {
                 >
                   <CheckCircle2 className="h-14 w-14 text-gold" strokeWidth={1.4} />
                   <h3 className="mt-6 font-display text-3xl text-charcoal">
-                    Enquiry Received.
+                    Enquiry Sent.
                   </h3>
                   <p className="mt-3 max-w-sm text-sm leading-relaxed text-mist">
-                    Thank you, {values.name.split(" ")[0] || "friend"}. A producer
-                    will reach out within one business day to begin shaping your
-                    event.
+                    We&rsquo;ve opened your enquiry in WhatsApp, {values.name.split(" ")[0] || "friend"}.
+                    Tap send over there and a producer will reach out within one
+                    business day to begin shaping your event.
                   </p>
                 </motion.div>
               ) : (
